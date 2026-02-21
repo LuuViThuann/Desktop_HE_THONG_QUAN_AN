@@ -29,6 +29,15 @@
   <img src="src/Assets/images/5.png" width="700"/>
 </p>
 <p align="center">
+  <img src="src/Assets/images/8.png" width="700"/>
+</p>
+<p align="center">
+  <img src="src/Assets/images/9.png" width="700"/>
+</p>
+<p align="center">
+  <img src="src/Assets/images/7.png" width="700"/>
+</p>
+<p align="center">
   <img src="src/Assets/images/bg_login.png" width="700"/>
 </p>
 <p align="center">

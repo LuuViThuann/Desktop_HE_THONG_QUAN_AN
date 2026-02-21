@@ -405,7 +405,7 @@ public class PanelManHinhChinh extends JPanel {
         JSplitPane outerSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         outerSplit.setLeftComponent(sidebarPanel);
         outerSplit.setRightComponent(rightTabbedPane);
-        outerSplit.setDividerLocation(220);
+        outerSplit.setDividerLocation(190);
         outerSplit.setDividerSize(8);
         outerSplit.setResizeWeight(0.0);
         outerSplit.setContinuousLayout(true);
@@ -427,9 +427,9 @@ public class PanelManHinhChinh extends JPanel {
         JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         rightSplit.setLeftComponent(detailPanel);
         rightSplit.setRightComponent(mainPanel);
-        rightSplit.setDividerLocation(450);
+        rightSplit.setDividerLocation(500);
         rightSplit.setDividerSize(8);
-        rightSplit.setResizeWeight(0.4);
+        rightSplit.setResizeWeight(0.7);
         rightSplit.setContinuousLayout(true);
         rightSplit.setBorder(null);
 
@@ -468,6 +468,7 @@ public class PanelManHinhChinh extends JPanel {
         JLabel iconKV = new JLabel("📍");
         iconKV.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 28));
         iconKV.setVerticalAlignment(JLabel.TOP);
+        iconKV.setForeground(Color.WHITE);
 
         JPanel titlePanel = new JPanel();
         titlePanel.setLayout(new BoxLayout(titlePanel, BoxLayout.Y_AXIS));
@@ -694,6 +695,7 @@ public class PanelManHinhChinh extends JPanel {
     }
 
     // ========== MAIN PANEL - TABBED PANE (ban grid) ==========
+
     private JPanel createMainPanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBackground(BG_SECONDARY);
@@ -702,8 +704,13 @@ public class PanelManHinhChinh extends JPanel {
             BorderFactory.createEmptyBorder(10, 10, 10, 10)
         ));
 
-        JPanel headerMain = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        // ─ Header row: icon + title + nút Chuyển Bàn + Gộp Bàn ─────────────
+        JPanel headerMain = new JPanel(new BorderLayout(0, 0));
         headerMain.setBackground(BG_SECONDARY);
+
+        // Bên trái: icon + tiêu đề
+        JPanel titleLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        titleLeft.setBackground(BG_SECONDARY);
 
         JLabel lblCacBan = new JLabel("🪑");
         lblCacBan.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 22));
@@ -712,9 +719,31 @@ public class PanelManHinhChinh extends JPanel {
         titleMain.setFont(new Font("Segoe UI", Font.BOLD, 14));
         titleMain.setForeground(TEXT_DARK);
 
-        headerMain.add(lblCacBan);
-        headerMain.add(titleMain);
+        titleLeft.add(lblCacBan);
+        titleLeft.add(titleMain);
 
+        // Bên phải: 2 nút chức năng
+        JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        btnRight.setBackground(BG_SECONDARY);
+
+        JButton btnChuyenBan = createMainPanelButton(
+            "Chuyển Bàn", new Color(70, 130, 180));   // xanh dương
+        JButton btnGopBan    = createMainPanelButton(
+            "Gộp Bàn",    new Color(230, 126, 34));   // cam
+
+        btnChuyenBan.setToolTipText("Chuyển toàn bộ món sang bàn khác (bàn đích phải Trống)");
+        btnGopBan.setToolTipText("Gộp món từ nhiều bàn vào một bàn đích");
+
+        btnChuyenBan.addActionListener(e -> onChuyenBan());
+        btnGopBan.addActionListener(e -> onGopBan());
+
+        btnRight.add(btnChuyenBan);
+        btnRight.add(btnGopBan);
+
+        headerMain.add(titleLeft, BorderLayout.WEST);
+        headerMain.add(btnRight,  BorderLayout.EAST);
+
+        // ─ Tabbed pane bàn ──────────────────────────────────────────────────
         tabbedPaneBan = new JTabbedPane(JTabbedPane.TOP);
         tabbedPaneBan.setBackground(BG_SECONDARY);
         tabbedPaneBan.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -735,10 +764,106 @@ public class PanelManHinhChinh extends JPanel {
             }
         });
 
-        panel.add(headerMain, BorderLayout.NORTH);
+        panel.add(headerMain,    BorderLayout.NORTH);
         panel.add(tabbedPaneBan, BorderLayout.CENTER);
 
         return panel;
+    }
+    
+    /** Nút nhỏ trong header CÁC BÀN PHỤC VỤ */
+    private JButton createMainPanelButton(String text, Color bg) {
+        JButton btn = new JButton(text) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                super.paintComponent(g);
+            }
+        };
+        btn.setBackground(bg);
+        btn.setForeground(Color.WHITE);
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        btn.setFocusPainted(false);
+        btn.setBorderPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setOpaque(false);
+        btn.setPreferredSize(new Dimension(130, 30));
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.addMouseListener(new MouseAdapter() {
+            @Override public void mouseEntered(MouseEvent e) { btn.setBackground(bg.darker()); btn.repaint(); }
+            @Override public void mouseExited(MouseEvent e)  { btn.setBackground(bg);          btn.repaint(); }
+        });
+        return btn;
+    }
+    
+    /** Mở dialog Chuyển Bàn */
+    private void onChuyenBan() {
+        if (currentBanId == -1) {
+            JOptionPane.showMessageDialog(this,
+                "Vui lòng chọn bàn nguồn (bàn đang sử dụng) trước!",
+                "Cảnh báo", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String trangThai = BanDAO.getTrangThaiBan(currentBanId);
+        if (!"Đang sử dụng".equals(trangThai)) {
+            JOptionPane.showMessageDialog(this,
+                "Chỉ có thể chuyển bàn đang được sử dụng!\nBàn hiện tại: " + trangThai,
+                "Cảnh báo", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        ChuyenBanFrame dialog = new ChuyenBanFrame(
+            (JFrame) SwingUtilities.getWindowAncestor(this),
+            currentBanId, currentTenBan
+        );
+        dialog.setVisible(true);
+
+        if (dialog.isDaChuyenBan()) {
+            // Reset trạng thái bàn hiện tại
+            currentBanId   = -1;
+            currentTenBan  = "";
+            txtTenBan.setText("");
+            modelThongTinBan.setRowCount(0);
+            txtTongTien.setText("0 VND");
+            txtGiamGia.setText("");
+            txtTongThu.setText("0 VND");
+            txtMaNVMoBan.setText("Chưa có");
+            selectedBanButton = null;
+            loadBan(); // reload lại toàn bộ grid bàn
+        }
+    }
+
+    /** Mở dialog Gộp Bàn */
+    private void onGopBan() {
+        GopBanFrame dialog = new GopBanFrame(
+            (JFrame) SwingUtilities.getWindowAncestor(this),
+            currentBanId, currentTenBan
+        );
+        dialog.setVisible(true);
+
+        if (dialog.isDaGopBan()) {
+            // Reload lại grid + thông tin bàn hiện tại
+            loadBan();
+            if (currentBanId != -1) {
+                String tt = BanDAO.getTrangThaiBan(currentBanId);
+                if ("Đang sử dụng".equals(tt)) {
+                    loadDanhSachMon(currentBanId);
+                    tinhTongTien(currentBanId);
+                } else {
+                    // Bàn hiện tại bị gộp vào bàn khác → reset
+                    currentBanId  = -1;
+                    currentTenBan = "";
+                    txtTenBan.setText("");
+                    modelThongTinBan.setRowCount(0);
+                    txtTongTien.setText("0 VND");
+                    txtGiamGia.setText("");
+                    txtTongThu.setText("0 VND");
+                    txtMaNVMoBan.setText("Chưa có");
+                    selectedBanButton = null;
+                }
+            }
+        }
     }
 
     private JPanel createPanelBanForKhuVuc(int maKV, String tenKV) {
@@ -1189,6 +1314,7 @@ public class PanelManHinhChinh extends JPanel {
 
         JLabel lblHdrIcon = new JLabel("📋");
         lblHdrIcon.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 20));
+        lblHdrIcon.setForeground(Color.WHITE);
         JLabel lblHdrTitle = new JLabel("THÔNG TIN BÀN");
         lblHdrTitle.setFont(new Font("Segoe UI", Font.BOLD, 14));
         lblHdrTitle.setForeground(Color.WHITE);
