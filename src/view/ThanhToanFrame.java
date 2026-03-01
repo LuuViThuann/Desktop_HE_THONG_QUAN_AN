@@ -662,166 +662,164 @@ public class ThanhToanFrame extends JDialog {
         }
     }
     
+    /**
+     * Luồng hoàn chỉnh:
+     * 1. Tạo ChiTietBanHang
+     * 2. Tạo HoaDonKhachHang
+     * 3. INSERT ChiTietHoaDon (trigger trg_xuat_kho_khi_ban sẽ tự trừ NL)
+     * 4. Gọi thêm sp_tru_nguyen_lieu_hoa_don phòng khi trigger chưa chạy
+     * 5. Xóa HoaDonBanHang, reset bàn
+     */
     private void onThanhToan(String phuongThuc) {
-        String thanhToanAmount = lblThanhToan.getText().replaceAll("[^0-9]", "");
-        
         int confirm = JOptionPane.showConfirmDialog(this,
-            "Xác nhận thanh toán " + tenBan + " bằng " + phuongThuc + "?\n\n" +
-            "Tổng tiền: " + lblThanhToan.getText(),
-            "Xác Nhận Thanh Toán", 
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.QUESTION_MESSAGE);
-        
-        if (confirm == JOptionPane.YES_OPTION) {
-            try (Connection conn = DatabaseConfig.getConnection()) {
-                conn.setAutoCommit(false);
-                
-                String phanTramGiam = txtGiamGia.getText().trim();
-                BigDecimal giamGia = BigDecimal.ZERO;
-                
-                if (!phanTramGiam.isEmpty()) {
-                    try {
-                        giamGia = new BigDecimal(phanTramGiam);
-                        if (giamGia.compareTo(BigDecimal.ZERO) < 0 || 
-                            giamGia.compareTo(new BigDecimal(100)) > 0) {
-                            giamGia = BigDecimal.ZERO;
-                        }
-                    } catch (NumberFormatException e) {
-                        giamGia = BigDecimal.ZERO;
-                    }
-                }
-                
-                BigDecimal tienGiam = tongTienGoc.multiply(giamGia)
-                                                 .divide(new BigDecimal(100), 0, java.math.RoundingMode.HALF_UP);
-                BigDecimal thanhToanValue = tongTienGoc.subtract(tienGiam);
-                
-                String getItems = "SELECT MaMon, SoLuong, (SoLuong * " +
-                                "(SELECT GiaTien FROM MonAn WHERE MaMon = h.MaMon)) AS GiaTien " +
-                                "FROM HoaDonBanHang h WHERE MaBan = ?";
-                
-                PreparedStatement pstmtGet = conn.prepareStatement(getItems,
-                    ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
-                pstmtGet.setInt(1, maBan);
-                ResultSet rsItems = pstmtGet.executeQuery();
-                
-                String insertCTBH = "INSERT INTO ChiTietBanHang (SoLuong, MaMon) VALUES (?, ?)";
-                PreparedStatement pstmtCTBH = conn.prepareStatement(insertCTBH, 
-                    Statement.RETURN_GENERATED_KEYS);
-                
-                int maCTBH = -1;
-                if (rsItems.next()) {
-                    pstmtCTBH.setInt(1, rsItems.getInt("SoLuong"));
-                    pstmtCTBH.setInt(2, rsItems.getInt("MaMon"));
-                    pstmtCTBH.executeUpdate();
-                    
-                    ResultSet rsKey = pstmtCTBH.getGeneratedKeys();
-                    if (rsKey.next()) {
-                        maCTBH = rsKey.getInt(1);
-                    }
-                }
-                
-                int tongSoMon = 0;
-                rsItems.beforeFirst();
-                while (rsItems.next()) {
-                    tongSoMon += rsItems.getInt("SoLuong");
-                }
-                
-                String insertHD = "INSERT INTO HoaDonKhachHang " +
-                                "(NgayThanhToan, MaBan, MaCTBH, TongTienThanhToan, " +
-                                "PhanTramGiamGia, TongSoLuongMon, LoaiHoaDon, DanhSachMon) " +
-                                "VALUES (CURDATE(), ?, ?, ?, ?, ?, 'Tại quán', ?)";
-                
-                PreparedStatement pstmtHD = conn.prepareStatement(insertHD, 
-                    Statement.RETURN_GENERATED_KEYS);
-                
-                pstmtHD.setInt(1, maBan);
-                pstmtHD.setInt(2, maCTBH);
-                pstmtHD.setBigDecimal(3, thanhToanValue);
-                pstmtHD.setBigDecimal(4, giamGia);
-                pstmtHD.setInt(5, tongSoMon);
-                pstmtHD.setString(6, txtGhiChu.getText());
-                pstmtHD.executeUpdate();
-                
-                ResultSet rsHD = pstmtHD.getGeneratedKeys();
-                int maCTHD = -1;
-                if (rsHD.next()) {
-                    maCTHD = rsHD.getInt(1);
-                    maCTHDDaThanhToan = maCTHD;
-                }
-                
-                String insertCTHD = "INSERT INTO ChiTietHoaDon " +
-                                  "(MaCTHD, MaMon, SoLuong, GiaTien) " +
-                                  "VALUES (?, ?, ?, ?)";
-                PreparedStatement pstmtDetailHD = conn.prepareStatement(insertCTHD);
-                
-                String getItemsDetail = "SELECT MaMon, SoLuong, (SoLuong * " +
-                                      "(SELECT GiaTien FROM MonAn WHERE MaMon = h.MaMon)) AS GiaTien " +
-                                      "FROM HoaDonBanHang h WHERE MaBan = ?";
-                PreparedStatement pstmtDetail = conn.prepareStatement(getItemsDetail);
-                pstmtDetail.setInt(1, maBan);
-                ResultSet rsDetail = pstmtDetail.executeQuery();
-                
-                while (rsDetail.next()) {
-                    pstmtDetailHD.setInt(1, maCTHD);
-                    pstmtDetailHD.setInt(2, rsDetail.getInt("MaMon"));
-                    pstmtDetailHD.setInt(3, rsDetail.getInt("SoLuong"));
-                    pstmtDetailHD.setBigDecimal(4, rsDetail.getBigDecimal("GiaTien"));
-                    pstmtDetailHD.addBatch();
-                }
-                
-                pstmtDetailHD.executeBatch();
-                
-                BanDAO.xoaTatCaMonTrongBan(maBan, conn);
-                BanDAO.updateTrangThaiBan(maBan, "Trống", conn);
-                
-                conn.commit();
-                
-                daThanhToan = true;
-                
-                JOptionPane.showMessageDialog(this,
-                    "✅ Thanh toán thành công!\n\n" +
-                    "Phương thức: " + phuongThuc + "\n" +
-                    "Tổng tiền: " + lblThanhToan.getText(),
-                    "Thành Công", JOptionPane.INFORMATION_MESSAGE);
-                
-                if (maCTHD > 0) {
-                    xemTruocHoaDonVoiMa(maCTHD);
-                }
-                
-                dispose();
-                
-            } catch (SQLException e) {
-                JOptionPane.showMessageDialog(this,
-                    "❌ Lỗi thanh toán: " + e.getMessage(),
-                    "Lỗi", JOptionPane.ERROR_MESSAGE);
-                e.printStackTrace();
+            "Xác nhận thanh toán " + tenBan + " bằng " + phuongThuc + "?\nTổng: " + lblThanhToan.getText(),
+            "Xác Nhận Thanh Toán", JOptionPane.YES_NO_OPTION);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        try (Connection conn = DatabaseConfig.getConnection()) {
+            conn.setAutoCommit(false);
+
+            BigDecimal giamGia  = parseGiamGia();
+            BigDecimal tienGiam = tongTienGoc.multiply(giamGia)
+                                             .divide(new BigDecimal(100), 0, java.math.RoundingMode.HALF_UP);
+            BigDecimal thanhToan = tongTienGoc.subtract(tienGiam);
+
+            // ── 1. ChiTietBanHang ──
+            int maCTBH = insertFirstChiTietBanHang(conn);
+
+            // ── 2. Đếm tổng món ──
+            int tongMon = getTongMon(conn);
+
+            // ── 3. HoaDonKhachHang ──
+            int maCTHD = insertHoaDon(conn, maCTBH, thanhToan, giamGia, tongMon, phuongThuc);
+            if (maCTHD <= 0) throw new SQLException("Không tạo được hóa đơn!");
+            maCTHDDaThanhToan = maCTHD;
+
+            // ── 4. ChiTietHoaDon (trigger tự trừ NL) ──
+            insertChiTietHoaDon(conn, maCTHD);
+
+            // ── 5. Gọi thêm SP phòng trigger (idempotent - tránh trừ 2 lần) ──
+            truNguyenLieuSP(conn, maCTHD);
+
+            // ── 6. Reset bàn ──
+            BanDAO.xoaTatCaMonTrongBan(maBan, conn);
+            BanDAO.updateTrangThaiBan(maBan, "Trống", conn);
+
+            conn.commit();
+            daThanhToan = true;
+
+            JOptionPane.showMessageDialog(this,
+                "✅ Thanh toán thành công!\nPhương thức: " + phuongThuc +
+                "\nTổng tiền: " + lblThanhToan.getText() +
+                "\n\nNguyên liệu đã được tự động trừ khỏi kho.",
+                "Thành Công", JOptionPane.INFORMATION_MESSAGE);
+
+            xemTruocHoaDonVoiMa(maCTHD);
+            dispose();
+
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "❌ Lỗi thanh toán: " + e.getMessage(),
+                "Lỗi", JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+    }
+    
+    private void onThanhToanQR() {
+        BigDecimal amount = new BigDecimal(lblThanhToan.getText().replaceAll("[^0-9]",""));
+        ThanhToanQRFrame qr = new ThanhToanQRFrame((JFrame)SwingUtilities.getWindowAncestor(this),-1,amount);
+        qr.setVisible(true);
+        if (qr.isDaThanhToan()) onThanhToan("Chuyển khoản QR");
+    }
+    
+    // ─────────────────── INSERT HELPERS ───────────────────
+    private int insertFirstChiTietBanHang(Connection conn) throws SQLException {
+        String sql = "SELECT MaMon, SoLuong FROM HoaDonBanHang WHERE MaBan=? LIMIT 1";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, maBan);
+            ResultSet rs = ps.executeQuery();
+            if (!rs.next()) return -1;
+            String ins = "INSERT INTO ChiTietBanHang (SoLuong, MaMon) VALUES (?,?)";
+            try (PreparedStatement pi = conn.prepareStatement(ins, Statement.RETURN_GENERATED_KEYS)) {
+                pi.setInt(1, rs.getInt("SoLuong"));
+                pi.setInt(2, rs.getInt("MaMon"));
+                pi.executeUpdate();
+                ResultSet k = pi.getGeneratedKeys();
+                return k.next() ? k.getInt(1) : -1;
             }
         }
     }
-    private void onThanhToanQR() {
-        try {
-            BigDecimal thanhToanAmount = new BigDecimal(
-                lblThanhToan.getText().replaceAll("[^0-9]", "")
-            );
-            
-            // Hiển thị dialog QR Code
-            ThanhToanQRFrame qrFrame = new ThanhToanQRFrame(
-                (JFrame) SwingUtilities.getWindowAncestor(this), 
-                -1,  // Không có maCTHD (dùng -1 để biểu thị chưa lưu)
-                thanhToanAmount
-            );
-            qrFrame.setVisible(true);
-            
-            // Kiểm tra xem user có xác nhận thanh toán hay không
-            if (qrFrame.isDaThanhToan()) {
-                // Cập nhật vào database
-                capNhatThanhToan("Chuyển khoản QR");
-            }
-            
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                "Lỗi xử lý QR: " + e.getMessage());
+
+    private int getTongMon(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT SUM(SoLuong) FROM HoaDonBanHang WHERE MaBan=?")) {
+            ps.setInt(1, maBan);
+            ResultSet rs = ps.executeQuery();
+            return rs.next() ? rs.getInt(1) : 0;
         }
+    }
+
+    private int insertHoaDon(Connection conn, int maCTBH, BigDecimal thanhToan,
+                              BigDecimal giamGia, int tongMon, String phuongThuc) throws SQLException {
+        String sql = "INSERT INTO HoaDonKhachHang " +
+                     "(NgayThanhToan, MaBan, MaCTBH, TongTienThanhToan, PhanTramGiamGia, " +
+                     "TongSoLuongMon, LoaiHoaDon, DanhSachMon) VALUES (CURDATE(),?,?,?,?,?,'Tại quán',?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setInt(1, maBan);
+            ps.setInt(2, maCTBH);
+            ps.setBigDecimal(3, thanhToan);
+            ps.setBigDecimal(4, giamGia);
+            ps.setInt(5, tongMon);
+            ps.setString(6, txtGhiChu.getText());
+            ps.executeUpdate();
+            ResultSet k = ps.getGeneratedKeys();
+            return k.next() ? k.getInt(1) : -1;
+        }
+    }
+
+    /**
+     * INSERT vào ChiTietHoaDon.
+     * Trigger trg_xuat_kho_khi_ban sẽ tự động trừ nguyên liệu.
+     */
+    private void insertChiTietHoaDon(Connection conn, int maCTHD) throws SQLException {
+        String getItems = "SELECT MaMon, SoLuong, " +
+                          "(SoLuong*(SELECT GiaTien FROM MonAn WHERE MaMon=h.MaMon)) AS GiaTien " +
+                          "FROM HoaDonBanHang h WHERE MaBan=?";
+        String ins = "INSERT INTO ChiTietHoaDon (MaCTHD, MaMon, SoLuong, GiaTien) VALUES (?,?,?,?)";
+        try (PreparedStatement ps = conn.prepareStatement(getItems);
+             PreparedStatement pi = conn.prepareStatement(ins)) {
+            ps.setInt(1, maBan);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                pi.setInt(1, maCTHD);
+                pi.setInt(2, rs.getInt("MaMon"));
+                pi.setInt(3, rs.getInt("SoLuong"));
+                pi.setBigDecimal(4, rs.getBigDecimal("GiaTien"));
+                pi.addBatch();
+            }
+            pi.executeBatch();
+        }
+    }
+
+    /**
+     * Gọi Stored Procedure trừ nguyên liệu (idempotent - có kiểm tra đã trừ chưa).
+     * Bổ sung phòng trường hợp trigger chưa được kích hoạt trên server.
+     */
+    private void truNguyenLieuSP(Connection conn, int maCTHD) {
+        try (CallableStatement cs = conn.prepareCall("{CALL sp_tru_nguyen_lieu_hoa_don(?)}")) {
+            cs.setInt(1, maCTHD);
+            cs.execute();
+        } catch (SQLException e) {
+            // Không throw - nếu trigger đã trừ rồi thì SP có NOT EXISTS check
+            System.err.println("[WARN] sp_tru_nguyen_lieu_hoa_don: " + e.getMessage());
+        }
+    }
+
+    private BigDecimal parseGiamGia() {
+        try {
+            BigDecimal g = new BigDecimal(txtGiamGia.getText().trim());
+            if (g.compareTo(BigDecimal.ZERO) >= 0 && g.compareTo(new BigDecimal(100)) <= 0) return g;
+        } catch (NumberFormatException ignored) {}
+        return BigDecimal.ZERO;
     }
     
     private void capNhatThanhToan(String phuongThuc) {
@@ -909,127 +907,29 @@ public class ThanhToanFrame extends JDialog {
     private void xemTruocHoaDonTamThoi() {
         try (Connection conn = DatabaseConfig.getConnection()) {
             conn.setAutoCommit(false);
-            
-            String phanTramGiam = txtGiamGia.getText().trim();
-            BigDecimal giamGia = BigDecimal.ZERO;
-            
-            if (!phanTramGiam.isEmpty()) {
-                try {
-                    giamGia = new BigDecimal(phanTramGiam);
-                    if (giamGia.compareTo(BigDecimal.ZERO) < 0 || 
-                        giamGia.compareTo(new BigDecimal(100)) > 0) {
-                        giamGia = BigDecimal.ZERO;
-                    }
-                } catch (NumberFormatException e) {
-                    giamGia = BigDecimal.ZERO;
-                }
-            }
-            
+            BigDecimal giamGia  = parseGiamGia();
             BigDecimal tienGiam = tongTienGoc.multiply(giamGia)
-                                             .divide(new BigDecimal(100), 0, java.math.RoundingMode.HALF_UP);
-            BigDecimal thanhToanValue = tongTienGoc.subtract(tienGiam);
-            
-            String getItems = "SELECT MaMon, SoLuong FROM HoaDonBanHang WHERE MaBan = ?";
-            PreparedStatement pstmtGet = conn.prepareStatement(getItems,
-                ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
-            pstmtGet.setInt(1, maBan);
-            ResultSet rsItems = pstmtGet.executeQuery();
-            
-            String insertCTBH = "INSERT INTO ChiTietBanHang (SoLuong, MaMon) VALUES (?, ?)";
-            PreparedStatement pstmtCTBH = conn.prepareStatement(insertCTBH, 
-                Statement.RETURN_GENERATED_KEYS);
-            
-            int maCTBH = -1;
-            if (rsItems.next()) {
-                pstmtCTBH.setInt(1, rsItems.getInt("SoLuong"));
-                pstmtCTBH.setInt(2, rsItems.getInt("MaMon"));
-                pstmtCTBH.executeUpdate();
-                
-                ResultSet rsKey = pstmtCTBH.getGeneratedKeys();
-                if (rsKey.next()) {
-                    maCTBH = rsKey.getInt(1);
-                }
-            }
-            
-            int tongSoMon = 0;
-            rsItems.beforeFirst();
-            while (rsItems.next()) {
-                tongSoMon += rsItems.getInt("SoLuong");
-            }
-            
-            String insertHD = "INSERT INTO HoaDonKhachHang " +
-                            "(NgayThanhToan, MaBan, MaCTBH, TongTienThanhToan, " +
-                            "PhanTramGiamGia, TongSoLuongMon, LoaiHoaDon, DanhSachMon) " +
-                            "VALUES (CURDATE(), ?, ?, ?, ?, ?, 'Tại quán', ?)";
-            
-            PreparedStatement pstmtHD = conn.prepareStatement(insertHD, 
-                Statement.RETURN_GENERATED_KEYS);
-            
-            pstmtHD.setInt(1, maBan);
-            pstmtHD.setInt(2, maCTBH);
-            pstmtHD.setBigDecimal(3, thanhToanValue);
-            pstmtHD.setBigDecimal(4, giamGia);
-            pstmtHD.setInt(5, tongSoMon);
-            pstmtHD.setString(6, txtGhiChu.getText());
-            pstmtHD.executeUpdate();
-            
-            ResultSet rsHD = pstmtHD.getGeneratedKeys();
-            int maCTHD = -1;
-            if (rsHD.next()) {
-                maCTHD = rsHD.getInt(1);
-            }
-            
-            String insertCTHD = "INSERT INTO ChiTietHoaDon " +
-                              "(MaCTHD, MaMon, SoLuong, GiaTien) " +
-                              "VALUES (?, ?, ?, ?)";
-            PreparedStatement pstmtDetailHD = conn.prepareStatement(insertCTHD);
-            
-            String getItemsDetail = "SELECT MaMon, SoLuong, " +
-                                  "(SoLuong * (SELECT GiaTien FROM MonAn WHERE MaMon = h.MaMon)) AS GiaTien " +
-                                  "FROM HoaDonBanHang h WHERE MaBan = ?";
-            PreparedStatement pstmtDetail = conn.prepareStatement(getItemsDetail);
-            pstmtDetail.setInt(1, maBan);
-            ResultSet rsDetail = pstmtDetail.executeQuery();
-            
-            while (rsDetail.next()) {
-                pstmtDetailHD.setInt(1, maCTHD);
-                pstmtDetailHD.setInt(2, rsDetail.getInt("MaMon"));
-                pstmtDetailHD.setInt(3, rsDetail.getInt("SoLuong"));
-                pstmtDetailHD.setBigDecimal(4, rsDetail.getBigDecimal("GiaTien"));
-                pstmtDetailHD.addBatch();
-            }
-            
-            pstmtDetailHD.executeBatch();
+                                             .divide(new BigDecimal(100),0,java.math.RoundingMode.HALF_UP);
+            BigDecimal thanhToan = tongTienGoc.subtract(tienGiam);
+
+            int maCTBH = insertFirstChiTietBanHang(conn);
+            int tongMon = getTongMon(conn);
+            int maCTHDTam = insertHoaDon(conn, maCTBH, thanhToan, giamGia, tongMon, "Xem trước");
+            insertChiTietHoaDon(conn, maCTHDTam);
+            // KHÔNG gọi truNguyenLieuSP ở đây vì chỉ xem trước
             conn.commit();
-            
-            if (maCTHD > 0) {
-                HoaDonPreviewFrame preview = new HoaDonPreviewFrame(parentFrame, maCTHD, "Tại quán");
-                preview.setVisible(true);
-                
-                conn.setAutoCommit(false);
-                
-                String deleteCTHD = "DELETE FROM ChiTietHoaDon WHERE MaCTHD = ?";
-                PreparedStatement pstmtDelCTHD = conn.prepareStatement(deleteCTHD);
-                pstmtDelCTHD.setInt(1, maCTHD);
-                pstmtDelCTHD.executeUpdate();
-                
-                String deleteHD = "DELETE FROM HoaDonKhachHang WHERE MaCTHD = ?";
-                PreparedStatement pstmtDelHD = conn.prepareStatement(deleteHD);
-                pstmtDelHD.setInt(1, maCTHD);
-                pstmtDelHD.executeUpdate();
-                
-                String deleteCTBH = "DELETE FROM ChiTietBanHang WHERE MaCTBH = ?";
-                PreparedStatement pstmtDelCTBH = conn.prepareStatement(deleteCTBH);
-                pstmtDelCTBH.setInt(1, maCTBH);
-                pstmtDelCTBH.executeUpdate();
-                
-                conn.commit();
-            }
-            
+
+            HoaDonPreviewFrame prev = new HoaDonPreviewFrame(parentFrame, maCTHDTam, "Tại quán");
+            prev.setVisible(true);
+
+            // Xóa dữ liệu tạm
+            conn.setAutoCommit(false);
+            conn.prepareStatement("DELETE FROM ChiTietHoaDon WHERE MaCTHD=" + maCTHDTam).executeUpdate();
+            conn.prepareStatement("DELETE FROM HoaDonKhachHang WHERE MaCTHD=" + maCTHDTam).executeUpdate();
+            conn.prepareStatement("DELETE FROM ChiTietBanHang WHERE MaCTBH=" + maCTBH).executeUpdate();
+            conn.commit();
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this,
-                "❌ Lỗi xem trước: " + e.getMessage(),
-                "Lỗi", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Lỗi xem trước: " + e.getMessage());
             e.printStackTrace();
         }
     }

@@ -14,11 +14,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Dialog CHUYỂN BÀN
- * Cho phép chuyển toàn bộ món từ bàn nguồn sang bàn đích (phải đang Trống).
- * Ghi lịch sử vào bảng LichSuChuyenBan.
- */
+
 public class ChuyenBanFrame extends JDialog {
 
     // ── Màu sắc nhất quán với PanelManHinhChinh ───────────────────────────────

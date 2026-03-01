@@ -13,6 +13,9 @@ public class MainFrame extends JFrame {
 
     private PanelManHinhChinh panelManHinhChinh;
     private JPanel contentPanel;
+    
+    private JPanel panelNguyenLieu = null;
+    private int nguyenLieuTabIndex = 0; // tab đang chọn
 
     // ============ COLOR PALETTE - Chuyên Nghiệp ============
     private static final Color PRIMARY_DARK   = new Color(25, 45, 85);
@@ -202,12 +205,35 @@ public class MainFrame extends JFrame {
         menuBar.add(menuHoaDon);
         menuBar.add(Box.createHorizontalStrut(15));
 
-        menuBar.add(menuTro);
+       
+        
+        // ===== MENU NGUYÊN LIỆU (Admin + Nhân viên đều thấy) =====
+        JMenu menuNguyenLieu = createMenu("NGUYÊN LIỆU", true);
+
+        // Tất cả đều thấy
+        menuNguyenLieu.add(createMenuItem("Danh Mục Nguyên Liệu",     e -> showNguyenLieuTab(0), ""));
+        menuNguyenLieu.add(createMenuItem("Nhập Hàng / Nhập Kho",     e -> showNguyenLieuTab(2), "Ctrl+N"));
+        menuNguyenLieu.add(createMenuItem("Xuất Kho / Sử Dụng",       e -> showNguyenLieuTab(3), ""));
+        menuNguyenLieu.addSeparator();
+
+        // Chỉ Admin thấy
+        if (isAdmin) {
+            menuNguyenLieu.add(createMenuItem("Công Thức Món Ăn",     e -> showNguyenLieuTab(1), ""));
+            menuNguyenLieu.add(createMenuItem("Báo Cáo & Phân Tích",  e -> showNguyenLieuTab(4), "Ctrl+R"));
+            menuNguyenLieu.addSeparator();
+        }
+
+        menuNguyenLieu.add(createMenuItem("Cảnh Báo Tồn Kho",      e -> showCanhBaoTonKho(),  ""));
+
+        // Thêm vào menuBar (TRƯỚC menuChuyenBan hoặc ở vị trí hợp lý)
+        menuBar.add(menuNguyenLieu);
         menuBar.add(Box.createHorizontalStrut(15));
+        
 
         // ✅ THÊM MENU CHUYỂN/GỘP BÀN (đã có submenu hoàn chỉnh)
         menuBar.add(menuChuyenBan);
-
+        menuBar.add(menuTro);
+        menuBar.add(Box.createHorizontalStrut(15));
         menuBar.add(Box.createHorizontalGlue());
 
         // ✅ HIỂN THỊ VAI TRÒ NGƯỜI DÙNG
@@ -338,6 +364,8 @@ public class MainFrame extends JFrame {
             title += "Hệ Thống Quản Lý Quán Ăn";
         } else if (newPanel instanceof LichSuChuyenBanForm) {      // ✅ MỚI
             title += "Lịch Sử Chuyển & Gộp Bàn";
+        } else if (newPanel == panelNguyenLieu) {
+            title += "Quản Lý Nguyên Liệu";
         } else {
             title += newPanel.getClass().getSimpleName();
         }
@@ -345,6 +373,61 @@ public class MainFrame extends JFrame {
         setTitle(title);
     }
 
+    private void showNguyenLieuTab(int tabIndex) {
+        try {
+            if (panelNguyenLieu == null) {
+                panelNguyenLieu = view.NguyenLieu.FormQuanLyNguyenLieu.createPanel();
+            }
+            // Chuyển đến tab chỉ định
+            if (panelNguyenLieu.getComponent(0) instanceof javax.swing.JTabbedPane) {
+                ((javax.swing.JTabbedPane) panelNguyenLieu.getComponent(0)).setSelectedIndex(tabIndex);
+            }
+            switchToPanel(panelNguyenLieu);
+            showStatusMessage("Đã mở Quản Lý Nguyên Liệu", new Color(46, 152, 102));
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                "Lỗi mở Quản Lý Nguyên Liệu: " + e.getMessage(),
+                "Lỗi", JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+    }
+
+    private void showCanhBaoTonKho() {
+        try {
+            java.util.List<model.NguyenLieu> canhBao = dao.NguyenLieuDAO.getCanhBao();
+            if (canhBao.isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                    "✓ Tất cả nguyên liệu đang đủ tồn kho!",
+                    "Tồn Kho Ổn Định", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("⚠  CÓ ").append(canhBao.size()).append(" NGUYÊN LIỆU SẮP HẾT / HẾT KHO:\n\n");
+            for (model.NguyenLieu nl : canhBao) {
+                sb.append(String.format("  • %-25s  Tồn: %.1f %s  (Tối thiểu: %.1f)\n",
+                    nl.getTenNguyenLieu(), nl.getSoLuong(),
+                    nl.getDonViTinh(), nl.getMucTonToiThieu()));
+            }
+            sb.append("\n→ Vào NGUYÊN LIỆU > Nhập Hàng để nhập thêm.");
+
+            JTextArea ta = new JTextArea(sb.toString());
+            ta.setFont(new Font("Consolas", Font.PLAIN, 13));
+            ta.setEditable(false);
+            ta.setBackground(new Color(255, 248, 220));
+            ta.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
+
+            JOptionPane.showMessageDialog(this, new JScrollPane(ta),
+                "Cảnh Báo Tồn Kho (" + canhBao.size() + " mục)",
+                JOptionPane.WARNING_MESSAGE);
+
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                "Lỗi kiểm tra tồn kho: " + e.getMessage(),
+                "Lỗi", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+    
     // ===================== ACTION HANDLERS =====================
 
     private void showMainPanel() {
@@ -377,14 +460,14 @@ public class MainFrame extends JFrame {
 
     private void openFormQuanLyHoaDon() {
         try {
-            new FormQuanLyHoaDon().setVisible(true);
+            NhanVien currentUser = UserSession.getInstance().getCurrentUser();
+            new FormQuanLyHoaDon(currentUser).setVisible(true);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
                     "Lỗi mở Form Quản Lý Hóa Đơn: " + e.getMessage(),
                     "Lỗi", JOptionPane.ERROR_MESSAGE);
         }
     }
-
     private void showLichSuDatBan() {
         try {
             LichSuDatBanForm lichSuForm = new LichSuDatBanForm();

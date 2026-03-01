@@ -764,7 +764,31 @@ public class PanelManHinhChinh extends JPanel {
             }
         });
 
-        panel.add(headerMain,    BorderLayout.NORTH);
+     // ── Legend chú thích màu trạng thái bàn ─────────────────────────────
+        JPanel legendPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 6));
+        legendPanel.setBackground(new Color(248, 250, 252));
+        legendPanel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 1, 0, new Color(220, 225, 230)),
+            BorderFactory.createEmptyBorder(2, 8, 2, 8)
+        ));
+
+        // Helper tạo 1 mục legend
+        javax.swing.JComponent[] legends = {
+            makeLegendItem(SUCCESS_GREEN,              "Đang sử dụng"),
+            makeLegendItem(WARNING_AMBER,              "Đã đặt"),
+            makeLegendItem(ACCENT_ORANGE,              "Đang chọn"),
+            makeLegendItem(new Color(236, 240, 244),   "Trống"),
+        };
+        for (javax.swing.JComponent item : legends) legendPanel.add(item);
+
+        // Wrap NORTH = header + legend
+        JPanel northSection = new JPanel(new BorderLayout(0, 0));
+        northSection.setBackground(BG_SECONDARY);
+        
+        northSection.add(headerMain,   BorderLayout.NORTH);
+        northSection.add(legendPanel,  BorderLayout.SOUTH);
+        
+        panel.add(northSection,  BorderLayout.NORTH);
         panel.add(tabbedPaneBan, BorderLayout.CENTER);
 
         return panel;
@@ -796,7 +820,34 @@ public class PanelManHinhChinh extends JPanel {
         });
         return btn;
     }
-    
+    /** Tạo 1 ô chú thích: [hình tròn màu] + [text] */
+	    private JPanel makeLegendItem(Color color, String label) {
+	        JPanel item = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+	        item.setOpaque(false);
+	
+	        JPanel dot = new JPanel() {
+	            @Override
+	            protected void paintComponent(Graphics g) {
+	                Graphics2D g2 = (Graphics2D) g;
+	                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+	                g2.setColor(color);
+	                g2.fillOval(0, 0, getWidth(), getHeight());
+	                g2.setColor(color.darker());
+	                g2.setStroke(new BasicStroke(1.2f));
+	                g2.drawOval(0, 0, getWidth() - 1, getHeight() - 1);
+	            }
+	        };
+	        dot.setOpaque(false);
+	        dot.setPreferredSize(new Dimension(14, 14));
+	
+	        JLabel lbl = new JLabel(label);
+	        lbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+	        lbl.setForeground(TEXT_DARK);
+	
+	        item.add(dot);
+	        item.add(lbl);
+	        return item;
+	    }
     /** Mở dialog Chuyển Bàn */
     private void onChuyenBan() {
         if (currentBanId == -1) {
@@ -2562,11 +2613,21 @@ public class PanelManHinhChinh extends JPanel {
             psDecStock.close();
 
             // 4. Mark ban as 'Đang sử dụng'
-            String updBan = "UPDATE Ban SET TrangThai = 'Đang sử dụng' WHERE MaBan = ?";
-            PreparedStatement psBan = conn.prepareStatement(updBan);
-            psBan.setInt(1, currentBanId);
-            psBan.executeUpdate();
-            psBan.close();
+            String checkBanStatus = "SELECT TrangThai FROM Ban WHERE MaBan = ?";
+            PreparedStatement psCheckBan = conn.prepareStatement(checkBanStatus);
+            psCheckBan.setInt(1, currentBanId);
+            ResultSet rsBan = psCheckBan.executeQuery();
+            String currentBanStatus = rsBan.next() ? rsBan.getString(1) : "Trống";
+            psCheckBan.close();
+
+            if (!"Đang sử dụng".equals(currentBanStatus)) {
+                // Lần đầu tiên có món → đổi trạng thái bàn
+                String updBan = "UPDATE Ban SET TrangThai = 'Đang sử dụng' WHERE MaBan = ?";
+                PreparedStatement psBan = conn.prepareStatement(updBan);
+                psBan.setInt(1, currentBanId);
+                psBan.executeUpdate();
+                psBan.close();
+            }
 
             conn.commit();
 
@@ -3191,19 +3252,38 @@ public class PanelManHinhChinh extends JPanel {
             formThongTin.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosed(WindowEvent e) {
-                    loadBan();
-                    if (currentBanId != -1) {
-                        String trangThaiMoi = BanDAO.getTrangThaiBan(currentBanId);
-                        if ("Đang sử dụng".equals(trangThaiMoi)) {
-                            loadDanhSachMon(currentBanId);
-                            tinhTongTien(currentBanId);
-                            loadThongTinNhanVienMoBan(currentBanId);
-                            updateEmployeeInfoFields();
-                        } else {
-                            modelThongTinBan.setRowCount(0);
-                            txtTongTien.setText("0 VND");
-                            txtGiamGia.setText("");
-                            txtTongThu.setText("0 VND");
+                    if (formThongTin.isGoiMonRequested()) {
+                        // User nhấn "Gọi Món Ngay" → vào tab Gọi Món inline.
+                        // KHÔNG cập nhật trạng thái bàn ở đây.
+                        // Trạng thái chỉ đổi thành 'Đang sử dụng' khi
+                        // món đầu tiên thực sự được thêm (addMonToCurrentBan).
+                        currentBanId  = ban.getMaBan();
+                        currentTenBan = ban.getTenBan();
+                        txtTenBan.setText(currentTenBan);
+                        inlineAddedCounts.clear();
+                        inlineAddedCountLabels.clear();
+                        updateEmployeeInfoFields();
+                        loadThongTinNhanVienMoBan(currentBanId);
+                        if (rightTabbedPane != null) {
+                            refreshGoiMonInlinePanel();
+                            rightTabbedPane.setSelectedIndex(1); // chuyển sang tab "Gọi Món"
+                        }
+                    } else {
+                        // User nhấn Hủy Đặt hoặc Đóng → reload grid
+                        loadBan();
+                        if (currentBanId != -1) {
+                            String trangThaiMoi = BanDAO.getTrangThaiBan(currentBanId);
+                            if ("Đang sử dụng".equals(trangThaiMoi)) {
+                                loadDanhSachMon(currentBanId);
+                                tinhTongTien(currentBanId);
+                                loadThongTinNhanVienMoBan(currentBanId);
+                                updateEmployeeInfoFields();
+                            } else {
+                                modelThongTinBan.setRowCount(0);
+                                txtTongTien.setText("0 VND");
+                                txtGiamGia.setText("");
+                                txtTongThu.setText("0 VND");
+                            }
                         }
                     }
                 }

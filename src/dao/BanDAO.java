@@ -199,12 +199,15 @@ public class BanDAO {
     // ==========
  // Thêm đặt bàn
     public static boolean themDatBan(DatBanTruoc datBan) {
+        // FIX bảo vệ: nếu caller quên set TrangThai, tự động gán 'Đã đặt'
+        if (datBan.getTrangThai() == null || datBan.getTrangThai().isEmpty()) {
+            datBan.setTrangThai("Đã đặt");
+        }
+
         String query = "INSERT INTO DatBanTruoc (HoTenKhachHang, SDT, SoLuongKhach, NgayDat, GioDat, MaBan, TrangThai) " +
                        "VALUES (?, ?, ?, ?, ?, ?, ?)";
-        
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(query)) {
-            
             pstmt.setString(1, datBan.getHoTenKhachHang());
             pstmt.setString(2, datBan.getSdt());
             pstmt.setInt(3, datBan.getSoLuongKhach());
@@ -212,26 +215,22 @@ public class BanDAO {
             pstmt.setTime(5, datBan.getGioDat());
             pstmt.setInt(6, datBan.getMaBan());
             pstmt.setString(7, datBan.getTrangThai());
-            
-            int rowsAffected = pstmt.executeUpdate();
-            return rowsAffected > 0;
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        
         return false;
     }
-
     // Lấy thông tin đặt bàn
     public static DatBanTruoc getThongTinDatBan(int maBan) {
-        String query = "SELECT * FROM DatBanTruoc WHERE MaBan = ? AND TrangThai = 'Đã đặt'";
-        
+        String query = "SELECT * FROM DatBanTruoc " +
+                       "WHERE MaBan = ? AND TrangThai = 'Đã đặt' " +
+                       "ORDER BY MaDatBan DESC LIMIT 1"; //  FIX: lấy booking mới nhất
+
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(query)) {
-            
             pstmt.setInt(1, maBan);
             ResultSet rs = pstmt.executeQuery();
-            
             if (rs.next()) {
                 DatBanTruoc datBan = new DatBanTruoc();
                 datBan.setMaDatBan(rs.getInt("MaDatBan"));
@@ -247,36 +246,26 @@ public class BanDAO {
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        
         return null;
     }
 
     // Hủy đặt bàn
     public static boolean huyDatBan(int maBan) {
         String query = "UPDATE DatBanTruoc SET TrangThai = 'Đã hủy' WHERE MaBan = ? AND TrangThai = 'Đã đặt'";
-        
         try (Connection conn = DatabaseConfig.getConnection()) {
             conn.setAutoCommit(false);
-            
-            // Cập nhật trạng thái đặt bàn
             PreparedStatement pstmt1 = conn.prepareStatement(query);
             pstmt1.setInt(1, maBan);
             pstmt1.executeUpdate();
-            
-            // Cập nhật trạng thái bàn về Trống
-            String updateBan = "UPDATE Ban SET TrangThai = 'Trống' WHERE MaBan = ?";
-            PreparedStatement pstmt2 = conn.prepareStatement(updateBan);
+            PreparedStatement pstmt2 = conn.prepareStatement("UPDATE Ban SET TrangThai = 'Trống' WHERE MaBan = ?");
             pstmt2.setInt(1, maBan);
             pstmt2.executeUpdate();
-            
             conn.commit();
             return true;
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        
         return false;
     }
-    
     //================================
 }

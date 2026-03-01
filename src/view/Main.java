@@ -4,7 +4,7 @@ import javax.swing.*;
 
 public class Main {
 	  public static void main(String[] args) {
-	        // Đảm bảo UI được tạo trên Event Dispatch Thread =========
+	        // Đảm bảo UI được tạo trên Event Dispatch Thread =========	
 	        SwingUtilities.invokeLater(() -> {
 	            try {
 	               
@@ -19,3 +19,9 @@ public class Main {
 	        });
 	    }
 }
+
+// yêu cầu từ Thầy : 
+
+// số lượng bán ra hôm nay 
+
+// chọn vào hóa đơn hiển thị ra danh sách món ăn 
